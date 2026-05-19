@@ -221,7 +221,7 @@ function setupTickerSearch() {
     list.innerHTML = hits
       .map(
         (s) =>
-          `<li data-symbol="${escAttr(s.symbol)}">` +
+          `<li data-symbol="${escHtml(s.symbol)}">` +
           `<b>${escHtml(s.symbol)}</b> ` +
           `<span>${escHtml(s.name || '')}</span></li>`,
       )
@@ -320,7 +320,7 @@ function renderNewsFeed(items) {
       ${
         a.tickers && a.tickers.length
           ? `<div class="news-tickers">${a.tickers
-              .map((t) => `<span class="ticker-tag" data-symbol="${escAttr(t)}">${escHtml(t)}</span>`)
+              .map((t) => `<span class="ticker-tag" data-symbol="${escHtml(t)}">${escHtml(t)}</span>`)
               .join('')}</div>`
           : ''
       }
@@ -369,7 +369,7 @@ function renderStocksTable(items) {
       const cls     = chg == null ? '' : chg >= 0 ? 'up' : 'down';
       const chgStr  = chg == null ? '–' : (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%';
       return `
-      <tr class="stock-row" data-symbol="${escAttr(s.symbol)}">
+      <tr class="stock-row" data-symbol="${escHtml(s.symbol)}">
         <td>${escHtml(s.symbol)}</td>
         <td class="name-cell">${escHtml(s.name || '–')}</td>
         <td>${s.close != null ? '$' + s.close.toFixed(2) : '–'}</td>
