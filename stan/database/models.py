@@ -87,3 +87,36 @@ class NewsTicker(Base):
     __table_args__ = (
         UniqueConstraint("article_id", "symbol", name="uq_news_article_symbol"),
     )
+
+
+class NewsImpact(Base):
+    """Price snapshot at fixed intervals after a news article is first collected.
+
+    One row per (article, symbol, interval).  ``interval_price`` starts NULL
+    and is filled in by the impact collector once the interval elapses.
+    """
+
+    __tablename__ = "news_impact"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    article_id = Column(
+        Integer,
+        ForeignKey("news_articles.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    symbol = Column(String(20), nullable=False, index=True)
+    # One of: 5, 15, 30, 60, 120, 240, 480, 1440
+    interval_minutes = Column(Integer, nullable=False)
+    # Close price at the moment the article was collected (baseline)
+    base_price = Column(Float, nullable=True)
+    # Close price captured once the interval has elapsed (NULL until filled)
+    interval_price = Column(Float, nullable=True)
+    captured_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "article_id", "symbol", "interval_minutes",
+            name="uq_news_impact",
+        ),
+    )

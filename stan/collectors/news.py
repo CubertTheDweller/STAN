@@ -8,9 +8,9 @@ from email.utils import parsedate_to_datetime
 import feedparser
 from sqlalchemy.exc import IntegrityError
 
-from stan.config import NEWS_FEEDS
+from stan.config import IMPACT_INTERVALS, NEWS_FEEDS
 from stan.database.db import SessionLocal
-from stan.database.models import NewsArticle, NewsTicker, Ticker
+from stan.database.models import NewsArticle, NewsImpact, NewsTicker, PriceSnapshot, Ticker
 
 logger = logging.getLogger(__name__)
 
@@ -103,13 +103,40 @@ def collect_news() -> None:
 
                 # Link to any mentioned tickers
                 text = f"{headline} {description or ''}"
-                for sym in _extract_tickers(text, known):
+                sym_list = _extract_tickers(text, known)
+                for sym in sym_list:
                     db.add(NewsTicker(article_id=article.id, symbol=sym))
 
                 try:
                     db.commit()
                     inserted += 1
                 except IntegrityError:
+                    db.rollback()
+                    continue
+
+                # ── Seed news-impact baseline rows ────────────────────────
+                # For each mentioned ticker, record the current price and
+                # create one pending row per capture interval.
+                for sym in sym_list:
+                    snap = (
+                        db.query(PriceSnapshot)
+                        .filter(PriceSnapshot.symbol == sym)
+                        .order_by(PriceSnapshot.timestamp.desc())
+                        .first()
+                    )
+                    base = snap.close if snap else None
+                    for interval in IMPACT_INTERVALS:
+                        db.merge(
+                            NewsImpact(
+                                article_id=article.id,
+                                symbol=sym,
+                                interval_minutes=interval,
+                                base_price=base,
+                            )
+                        )
+                try:
+                    db.commit()
+                except Exception:
                     db.rollback()
 
         logger.info("Inserted %d new news articles", inserted)

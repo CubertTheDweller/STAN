@@ -5,6 +5,7 @@ import logging
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
+from stan.collectors.impact import fill_news_impact
 from stan.collectors.news import collect_news
 from stan.collectors.stocks import collect_stocks
 from stan.config import POLL_INTERVAL_SECONDS
@@ -35,8 +36,18 @@ def create_scheduler() -> BackgroundScheduler:
         misfire_grace_time=60,
     )
 
+    scheduler.add_job(
+        fill_news_impact,
+        trigger=IntervalTrigger(seconds=POLL_INTERVAL_SECONDS),
+        id="fill_news_impact",
+        name="Fill news-impact price captures",
+        replace_existing=True,
+        max_instances=1,
+        misfire_grace_time=60,
+    )
+
     logger.info(
-        "Scheduler configured: stock + news collection every %ds",
+        "Scheduler configured: stock + news + impact collection every %ds",
         POLL_INTERVAL_SECONDS,
     )
     return scheduler

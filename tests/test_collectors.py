@@ -7,30 +7,24 @@ import pandas as pd
 # ── stocks collector ──────────────────────────────────────────────────────────
 
 
-@patch("stan.collectors.stocks.requests.get")
-@patch("stan.collectors.stocks.pd.read_html")
-def test_fetch_sp500_symbols_returns_list(mock_read_html, mock_get):
-    mock_resp = MagicMock()
-    mock_resp.text = "<html/>"
-    mock_get.return_value = mock_resp
+def test_fetch_sp500_symbols_returns_list():
+    """fetch_sp500_symbols returns the curated TRACKED_TICKERS list."""
+    from stan.collectors.stocks import fetch_sp500_symbols
+    from stan.config import TRACKED_TICKERS
 
-    mock_df = pd.DataFrame({"Symbol": ["AAPL", "MSFT", "BRK.B"]})
-    mock_read_html.return_value = [mock_df]
+    symbols = fetch_sp500_symbols()
+    assert isinstance(symbols, list)
+    assert len(symbols) == len(TRACKED_TICKERS)
+    assert "AAPL" in symbols   # top NASDAQ
+    assert "JPM" in symbols    # top NYSE
 
+
+def test_fetch_sp500_symbols_returns_correct_count():
+    """fetch_sp500_symbols returns exactly 100 tickers (50 NASDAQ + 50 NYSE)."""
     from stan.collectors.stocks import fetch_sp500_symbols
 
     symbols = fetch_sp500_symbols()
-    assert "AAPL" in symbols
-    assert "MSFT" in symbols
-    assert "BRK-B" in symbols  # dots replaced with dashes
-
-
-@patch("stan.collectors.stocks.requests.get", side_effect=Exception("network error"))
-def test_fetch_sp500_symbols_returns_empty_on_failure(mock_get):
-    from stan.collectors.stocks import fetch_sp500_symbols
-
-    symbols = fetch_sp500_symbols()
-    assert symbols == []
+    assert len(symbols) == 100
 
 
 # ── news collector ────────────────────────────────────────────────────────────

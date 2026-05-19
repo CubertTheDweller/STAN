@@ -7,7 +7,7 @@ from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
 from stan.database.db import get_db
-from stan.database.models import NewsArticle, NewsTicker
+from stan.database.models import NewsArticle, NewsImpact, NewsTicker
 
 router = APIRouter(prefix="/api/news", tags=["news"])
 
@@ -103,6 +103,54 @@ def get_news_markers(
         )
 
     return {"symbol": symbol, "period": period, "markers": markers}
+
+
+@router.get("/{article_id}/impact")
+def get_article_impact(article_id: int, db: Session = Depends(get_db)):
+    """Return the price-change captures for all tickers mentioned in an article.
+
+    Each ticker has a ``base_price`` (close at collection time) and one entry
+    per interval (5 / 15 / 30 / 60 / 120 / 240 / 480 / 1440 min).  The
+    ``interval_price`` is ``null`` until that interval has elapsed and the
+    background collector has filled it in.
+    """
+    article = db.query(NewsArticle).filter(NewsArticle.id == article_id).first()
+    if not article:
+        raise HTTPException(status_code=404, detail="Article not found")
+
+    impacts = (
+        db.query(NewsImpact)
+        .filter(NewsImpact.article_id == article_id)
+        .order_by(NewsImpact.symbol, NewsImpact.interval_minutes)
+        .all()
+    )
+
+    by_symbol: dict[str, dict] = {}
+    for imp in impacts:
+        if imp.symbol not in by_symbol:
+            by_symbol[imp.symbol] = {"symbol": imp.symbol, "base_price": imp.base_price, "intervals": []}
+
+        change_pct = None
+        if imp.base_price and imp.interval_price and imp.base_price != 0:
+            change_pct = round(
+                ((imp.interval_price - imp.base_price) / imp.base_price) * 100, 4
+            )
+
+        by_symbol[imp.symbol]["intervals"].append({
+            "minutes": imp.interval_minutes,
+            "interval_price": imp.interval_price,
+            "change_pct": change_pct,
+            "captured_at": (
+                imp.captured_at.isoformat() + "Z" if imp.captured_at else None
+            ),
+        })
+
+    return {
+        "article_id": article_id,
+        "headline": article.headline,
+        "fetched_at": article.fetched_at.isoformat() + "Z" if article.fetched_at else None,
+        "tickers": list(by_symbol.values()),
+    }
 
 
 @router.get("/{article_id}")
