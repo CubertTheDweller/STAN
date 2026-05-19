@@ -41,7 +41,8 @@ pytest tests/ -v
 ```
 
 Tests use an in-memory SQLite database and mock network calls (yfinance / feedparser).
-Add tests for any new collector logic or API endpoints.
+Add tests for any new collector logic or API endpoints. The four test modules map to
+the main functional areas: `test_collectors.py`, `test_api.py`, `test_archive.py`.
 
 ---
 
