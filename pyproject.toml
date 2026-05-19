@@ -1,0 +1,34 @@
+[project]
+name = "stan"
+version = "0.1.0"
+description = "Stock Trading on Active News — continuously collect stock prices and financial news, visualised in a web dashboard"
+authors = [{ name = "STAN Contributors" }]
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "sqlalchemy>=2.0.0",
+    "yfinance>=0.2.40",
+    "feedparser>=6.0.0",
+    "apscheduler>=3.10.0",
+    "pandas>=2.2.0",
+    "jinja2>=3.1.0",
+    "python-dotenv>=1.0.0",
+    "httpx>=0.27.0",
+    "lxml>=5.0.0",
+]
+
+[project.scripts]
+stan = "run:main"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
