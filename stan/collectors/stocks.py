@@ -1,9 +1,11 @@
 """Stock price collector — fetches S&P 500 OHLCV data via yfinance every poll cycle."""
 
+import io
 import logging
 from datetime import UTC, datetime
 
 import pandas as pd
+import requests
 import yfinance as yf
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
@@ -15,6 +17,15 @@ logger = logging.getLogger(__name__)
 
 SP500_WIKI_URL = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
 
+# Wikipedia blocks the default Python user-agent; send a plausible browser UA.
+_WIKI_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    )
+}
+
 # Module-level cache so we only hit Wikipedia once per process
 _ticker_cache: list[str] = []
 
@@ -25,7 +36,9 @@ _ticker_cache: list[str] = []
 def fetch_sp500_symbols() -> list[str]:
     """Download the S&P 500 constituent list from Wikipedia."""
     try:
-        tables = pd.read_html(SP500_WIKI_URL, header=0)
+        resp = requests.get(SP500_WIKI_URL, headers=_WIKI_HEADERS, timeout=15)
+        resp.raise_for_status()
+        tables = pd.read_html(io.StringIO(resp.text), header=0)
         symbols: list[str] = (
             tables[0]["Symbol"].str.replace(".", "-", regex=False).tolist()
         )

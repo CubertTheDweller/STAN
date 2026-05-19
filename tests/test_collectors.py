@@ -7,8 +7,13 @@ import pandas as pd
 # ── stocks collector ──────────────────────────────────────────────────────────
 
 
+@patch("stan.collectors.stocks.requests.get")
 @patch("stan.collectors.stocks.pd.read_html")
-def test_fetch_sp500_symbols_returns_list(mock_read_html):
+def test_fetch_sp500_symbols_returns_list(mock_read_html, mock_get):
+    mock_resp = MagicMock()
+    mock_resp.text = "<html/>"
+    mock_get.return_value = mock_resp
+
     mock_df = pd.DataFrame({"Symbol": ["AAPL", "MSFT", "BRK.B"]})
     mock_read_html.return_value = [mock_df]
 
@@ -20,8 +25,8 @@ def test_fetch_sp500_symbols_returns_list(mock_read_html):
     assert "BRK-B" in symbols  # dots replaced with dashes
 
 
-@patch("stan.collectors.stocks.pd.read_html", side_effect=Exception("network error"))
-def test_fetch_sp500_symbols_returns_empty_on_failure(mock_read_html):
+@patch("stan.collectors.stocks.requests.get", side_effect=Exception("network error"))
+def test_fetch_sp500_symbols_returns_empty_on_failure(mock_get):
     from stan.collectors.stocks import fetch_sp500_symbols
 
     symbols = fetch_sp500_symbols()

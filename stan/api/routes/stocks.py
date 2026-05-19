@@ -84,13 +84,18 @@ def list_stocks(
 
 
 def _backfill_history(symbol: str, period: str) -> None:
-    """Fetch daily candle history from yfinance and store it in the DB."""
-    yf_period = period if period in ("1mo", "3mo") else "1mo"
+    """Fetch candle history from yfinance and store it in the DB."""
+    # Short periods use intraday 5-min bars; monthly views use daily bars.
+    if period in ("1mo", "3mo"):
+        yf_period, yf_interval = period, "1d"
+    else:  # "1d" or "5d"
+        yf_period, yf_interval = "5d", "5m"
+
     try:
         raw = yf.download(
             symbol,
             period=yf_period,
-            interval="1d",
+            interval=yf_interval,
             progress=False,
             auto_adjust=True,
         )
@@ -101,6 +106,17 @@ def _backfill_history(symbol: str, period: str) -> None:
     if raw is None or raw.empty:
         return
 
+    # yfinance 1.x returns MultiIndex columns even for a single ticker;
+    # normalise to a flat frame so row["Open"] etc. are plain scalars.
+    if isinstance(raw.columns, pd.MultiIndex):
+        raw = raw.xs(symbol, level=1, axis=1)
+
+    def sf(v):
+        try:
+            return None if pd.isna(v) else float(v)
+        except Exception:
+            return None
+
     rows = []
     for ts, row in raw.iterrows():
         dt = ts.to_pydatetime()
@@ -108,12 +124,6 @@ def _backfill_history(symbol: str, period: str) -> None:
             dt = dt.replace(tzinfo=UTC)
         else:
             dt = dt.astimezone(UTC)
-
-        def sf(v):
-            try:
-                return None if pd.isna(v) else float(v)
-            except Exception:
-                return None
 
         rows.append(
             {
@@ -137,7 +147,7 @@ def _backfill_history(symbol: str, period: str) -> None:
         stmt = stmt.on_conflict_do_nothing(index_elements=["symbol", "timestamp"])
         db.execute(stmt)
         db.commit()
-        logger.info("Backfilled %d daily candles for %s", len(rows), symbol)
+        logger.info("Backfilled %d %s candles for %s", len(rows), yf_interval, symbol)
     except Exception as exc:
         logger.error("Backfill DB write error for %s: %s", symbol, exc)
         db.rollback()
