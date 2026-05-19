@@ -357,6 +357,39 @@ a:hover { text-decoration: underline; }
   color: var(--accent);
 }
 
+/* ── Clustered news panel ──────────────────────────────────────────────── */
+.cluster-count {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  margin-bottom: 10px;
+}
+.cluster-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 0;
+}
+.cluster-item .article-link {
+  font-size: 13px;
+  font-weight: 600;
+  color: #d1d4dc;
+  line-height: 1.4;
+}
+.cluster-item .article-link:hover { color: var(--accent); }
+.cluster-item .article-desc {
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+.cluster-divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 6px 0;
+}
+
 /* ── Bottom zone ───────────────────────────────────────────────────────── */
 .bottom-zone {
   display: grid;

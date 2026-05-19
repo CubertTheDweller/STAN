@@ -173,6 +173,49 @@ function snapToCandle(t, times) {
   return (t - prev) <= (next - t) ? prev : next;
 }
 
+// Group markers that fall within `windowSecs` of each other into clusters.
+// Returns an array of cluster objects:
+//   { time, articles[], category, color, text }
+// `time`     — median article time in the cluster (before candle-snapping)
+// `articles` — every raw API marker in the cluster
+// `category` / `color` / `text` — majority category across the cluster
+function clusterMarkers(markers, windowSecs = 600) {
+  if (!markers.length) return [];
+  const sorted = [...markers].sort((a, b) => a.time - b.time);
+  const clusters = [];
+  let group = [sorted[0]];
+
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i].time - group[0].time <= windowSecs) {
+      group.push(sorted[i]);
+    } else {
+      clusters.push(group);
+      group = [sorted[i]];
+    }
+  }
+  clusters.push(group);
+
+  return clusters.map((grp) => {
+    // Majority category
+    const freq = {};
+    for (const m of grp) freq[m.category || 'general'] = (freq[m.category || 'general'] || 0) + 1;
+    const majorCat = Object.entries(freq).sort((a, b) => b[1] - a[1])[0][0];
+    const catDef = MARKER_CATEGORIES[majorCat] || MARKER_CATEGORIES.general;
+
+    // Median timestamp as the cluster anchor
+    const mid = Math.floor(grp.length / 2);
+    const time = grp[mid].time;
+
+    return {
+      time,
+      articles: grp,
+      category: majorCat,
+      color:    catDef.color,
+      text:     grp.length > 1 ? String(grp.length) : catDef.key,
+    };
+  });
+}
+
 // ─── Load + render chart data ────────────────────────────────────────────────
 async function loadChart(symbol, period) {
   document.getElementById('chartPlaceholder').style.display = 'none';
@@ -299,21 +342,22 @@ async function loadMarketChart(period) {
     S.sp500LineSeries.setData(gspcData   ? normalizeToPercent(gspcData.candles)  : []);
 
     // ── News markers coloured by category ───────────────────────────
-    // Snap each marker timestamp to the nearest candle time so TradingView
-    // doesn't silently discard markers that fall between bar intervals.
+    // Cluster articles within 10 min of each other, then snap the cluster
+    // anchor to the nearest candle bar so TradingView renders the arrow.
     const candleTimes = candles.map((c) => c.time);
     S.markerMap.clear();
     const seenCategories = new Set();
-    const chartMarkers = (mData.markers || []).map((m) => {
-      const snapped = snapToCandle(m.time, candleTimes);
-      S.markerMap.set(snapped, m);
-      seenCategories.add(m.category || 'general');
+    const clusters = clusterMarkers(mData.markers || [], 600);
+    const chartMarkers = clusters.map((cl) => {
+      const snapped = snapToCandle(cl.time, candleTimes);
+      S.markerMap.set(snapped, cl);
+      seenCategories.add(cl.category);
       return {
         time:     snapped,
         position: 'aboveBar',
-        color:    m.color,
+        color:    cl.color,
         shape:    'arrowDown',
-        text:     m.text,
+        text:     cl.text,
       };
     });
     lcSetMarkers(S.candleSeries, chartMarkers);
@@ -450,15 +494,34 @@ function setupPeriodButtons() {
 }
 
 // ─── News detail panel ────────────────────────────────────────────────────────
-function openNewsPanel(article) {
-  document.getElementById('newsPanelBody').innerHTML = `
-    <div class="article-source">${escHtml(article.source || 'News')}</div>
-    <h4 class="article-headline">${escHtml(article.headline || '')}</h4>
-    <p class="article-desc">${escHtml(article.description || 'No summary available.')}</p>
-    <a class="article-link" href="${escAttr(article.url)}" target="_blank" rel="noopener noreferrer">
-      Read full article →
-    </a>
-  `;
+function openNewsPanel(item) {
+  // `item` is either a raw article object (symbol mode) or a cluster object
+  // (market mode) with an `articles` array.
+  const articles = item.articles || [item];
+
+  let html;
+  if (articles.length === 1) {
+    const a = articles[0];
+    html = `
+      <div class="article-source">${escHtml(a.source || 'News')}</div>
+      <h4 class="article-headline">${escHtml(a.headline || '')}</h4>
+      <p class="article-desc">${escHtml(a.description || 'No summary available.')}</p>
+      <a class="article-link" href="${escAttr(a.url)}" target="_blank" rel="noopener noreferrer">
+        Read full article →
+      </a>`;
+  } else {
+    html = `<p class="cluster-count">${articles.length} news events</p>` +
+      articles.map((a) => `
+      <div class="cluster-item">
+        <div class="article-source">${escHtml(a.source || 'News')}</div>
+        <a class="article-link" href="${escAttr(a.url)}" target="_blank" rel="noopener noreferrer">
+          ${escHtml(a.headline || '')}
+        </a>
+        <p class="article-desc">${escHtml(a.description || '')}</p>
+      </div>`).join('<hr class="cluster-divider">');
+  }
+
+  document.getElementById('newsPanelBody').innerHTML = html;
   const panel = document.getElementById('newsPanel');
   panel.classList.add('open');
   panel.setAttribute('aria-hidden', 'false');
