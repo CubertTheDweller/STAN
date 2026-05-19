@@ -158,6 +158,21 @@ function initChart() {
 
 const fmt = (v) => (v == null ? '–' : Number(v).toFixed(2));
 
+// Snap a Unix timestamp to the nearest value in a sorted candle-times array.
+// TradingView silently drops markers whose time doesn't match a bar.
+function snapToCandle(t, times) {
+  if (!times.length) return t;
+  let lo = 0, hi = times.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (times[mid] < t) lo = mid + 1;
+    else hi = mid;
+  }
+  if (lo === 0) return times[0];
+  const prev = times[lo - 1], next = times[lo];
+  return (t - prev) <= (next - t) ? prev : next;
+}
+
 // ─── Load + render chart data ────────────────────────────────────────────────
 async function loadChart(symbol, period) {
   document.getElementById('chartPlaceholder').style.display = 'none';
@@ -284,13 +299,17 @@ async function loadMarketChart(period) {
     S.sp500LineSeries.setData(gspcData   ? normalizeToPercent(gspcData.candles)  : []);
 
     // ── News markers coloured by category ───────────────────────────
+    // Snap each marker timestamp to the nearest candle time so TradingView
+    // doesn't silently discard markers that fall between bar intervals.
+    const candleTimes = candles.map((c) => c.time);
     S.markerMap.clear();
     const seenCategories = new Set();
     const chartMarkers = (mData.markers || []).map((m) => {
-      S.markerMap.set(m.time, m);
+      const snapped = snapToCandle(m.time, candleTimes);
+      S.markerMap.set(snapped, m);
       seenCategories.add(m.category || 'general');
       return {
-        time:     m.time,
+        time:     snapped,
         position: 'aboveBar',
         color:    m.color,
         shape:    'arrowDown',
