@@ -7,14 +7,16 @@
 
 // ─── Global state ──────────────────────────────────────────────────────────
 const S = {
-  symbol:       null,      // currently selected ticker
-  period:       '1d',
-  chart:        null,
-  candleSeries: null,
-  volSeries:    null,
-  markerMap:    new Map(), // Unix-ts (number) → marker object from API
-  allStocks:    [],        // cached for autocomplete + table
-  refreshTimer: null,
+  symbol:            null,      // currently selected ticker (null in market mode)
+  period:            '1d',
+  mode:              'market',  // 'market' | 'symbol'
+  chart:             null,
+  candleSeries:      null,
+  volSeries:         null,
+  overlayLineSeries: null,      // NASDAQ line shown in market mode
+  markerMap:         new Map(), // Unix-ts (number) → marker object from API
+  allStocks:         [],        // cached for autocomplete + table
+  refreshTimer:      null,
 };
 
 // ─── Lightweight Charts compat shim (v4 + v5) ──────────────────────────────
@@ -34,6 +36,13 @@ function lcAddHistogram(chart, opts) {
     return chart.addHistogramSeries(opts);
   }
   return chart.addSeries(LC.HistogramSeries, opts);
+}
+
+function lcAddLine(chart, opts) {
+  if (typeof chart.addLineSeries === 'function') {
+    return chart.addLineSeries(opts);
+  }
+  return chart.addSeries(LC.LineSeries, opts);
 }
 
 function lcSetMarkers(series, markers) {
@@ -61,6 +70,7 @@ function initChart() {
     crosshair: {
       mode: LC.CrosshairMode ? LC.CrosshairMode.Normal : 1,
     },
+    leftPriceScale:  { visible: false, borderColor: '#2a2e39' },
     rightPriceScale: { borderColor: '#2a2e39' },
     timeScale: {
       borderColor:    '#2a2e39',
@@ -84,6 +94,17 @@ function initChart() {
     priceFormat: { type: 'volume' },
     priceScaleId: 'volume',
     scaleMargins: { top: 0.85, bottom: 0 },
+  });
+
+  // NASDAQ overlay line series — shown only in market mode (left price scale)
+  S.overlayLineSeries = lcAddLine(S.chart, {
+    color:               '#2196f3',
+    lineWidth:           2,
+    priceScaleId:        'left',
+    title:               'NASDAQ',
+    lastValueVisible:    true,
+    priceLineVisible:    false,
+    crosshairMarkerVisible: true,
   });
 
   // OHLCV crosshair legend
@@ -174,8 +195,70 @@ async function loadChart(symbol, period) {
   }
 }
 
+// ─── Market overview (NYSE candlestick + NASDAQ line overlay) ────────────────
+async function loadMarketChart(period) {
+  S.mode   = 'market';
+  S.symbol = null;
+  document.getElementById('tickerInput').value = '';
+  document.getElementById('chartPlaceholder').style.display = 'none';
+  document.getElementById('chartContainer').style.display  = 'block';
+  if (!S.chart) initChart();
+
+  // Activate market button
+  document.getElementById('marketBtn').classList.add('active');
+  // Show overlay legend badge
+  document.getElementById('overlayBadge').hidden = false;
+  // Enable left scale for NASDAQ
+  S.chart.applyOptions({ leftPriceScale: { visible: true, borderColor: '#2a2e39' } });
+
+  try {
+    const enc = encodeURIComponent;
+    const [nyaRes, ixicRes] = await Promise.all([
+      fetch(`/api/stocks/${enc('^NYA')}/candles?period=${period}`),
+      fetch(`/api/stocks/${enc('^IXIC')}/candles?period=${period}`),
+    ]);
+
+    if (!nyaRes.ok) throw new Error(`NYSE data unavailable (${nyaRes.status})`);
+
+    const nyaData  = await nyaRes.json();
+    const ixicData = ixicRes.ok ? await ixicRes.json() : null;
+
+    const candles = nyaData.candles.filter(
+      (c) => c.open != null && c.high != null && c.low != null && c.close != null,
+    );
+    S.candleSeries.setData(candles);
+
+    const vols = candles
+      .filter((c) => c.volume != null)
+      .map((c) => ({
+        time:  c.time,
+        value: c.volume,
+        color: c.close >= c.open ? 'rgba(38,166,154,0.35)' : 'rgba(239,83,80,0.35)',
+      }));
+    S.volSeries.setData(vols);
+
+    if (ixicData) {
+      const line = ixicData.candles
+        .filter((c) => c.close != null)
+        .map((c) => ({ time: c.time, value: c.close }));
+      S.overlayLineSeries.setData(line);
+    } else {
+      S.overlayLineSeries.setData([]);
+    }
+
+    S.markerMap.clear();
+    lcSetMarkers(S.candleSeries, []);
+    S.chart.timeScale().fitContent();
+    updateStatus(true, `NYSE Composite  ·  NASDAQ overlay  ·  ${period.toUpperCase()}`);
+  } catch (err) {
+    console.error('Market chart error:', err);
+    updateStatus(false, err.message);
+  }
+}
+
 // ─── Incremental refresh (append latest candle) ──────────────────────────────
 async function refreshChart() {
+  if (S.mode === 'market') { await loadMarketChart(S.period); return; }
   if (!S.symbol || !S.chart) return;
   try {
     const res = await fetch(
@@ -248,9 +331,15 @@ function setupTickerSearch() {
 }
 
 function selectSymbol(symbol) {
+  S.mode   = 'symbol';
   S.symbol = symbol.toUpperCase();
   document.getElementById('tickerInput').value = S.symbol;
   document.getElementById('autocompleteList').hidden = true;
+  // Deactivate market button and hide overlay
+  document.getElementById('marketBtn').classList.remove('active');
+  document.getElementById('overlayBadge').hidden = true;
+  if (S.chart) S.chart.applyOptions({ leftPriceScale: { visible: false } });
+  if (S.overlayLineSeries) S.overlayLineSeries.setData([]);
   loadChart(S.symbol, S.period);
 }
 
@@ -261,7 +350,11 @@ function setupPeriodButtons() {
       document.querySelectorAll('.period-btn').forEach((b) => b.classList.remove('active'));
       btn.classList.add('active');
       S.period = btn.dataset.period;
-      if (S.symbol) loadChart(S.symbol, S.period);
+      if (S.mode === 'market') {
+        loadMarketChart(S.period);
+      } else if (S.symbol) {
+        loadChart(S.symbol, S.period);
+      }
     });
   });
 }
@@ -438,12 +531,21 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupTickerSearch();
   setupPeriodButtons();
 
+  // Market overview button
+  document.getElementById('marketBtn').addEventListener('click', () => {
+    document.querySelectorAll('.period-btn').forEach((b) => b.classList.add('active'));
+    // Keep the active period button correct
+    document.querySelectorAll('.period-btn').forEach((b) => {
+      b.classList.toggle('active', b.dataset.period === S.period);
+    });
+    loadMarketChart(S.period);
+  });
+
   // Initial data load
   await Promise.all([loadStockList(), loadNewsFeed()]);
 
-  // Auto-load chart for the first available symbol (default AAPL)
-  const defaultSymbol = (S.allStocks.length > 0 ? S.allStocks[0].symbol : null) || 'AAPL';
-  selectSymbol(defaultSymbol);
+  // Default to market overview on page load
+  loadMarketChart(S.period);
 
   // Auto-refresh every 60 s
   S.refreshTimer = setInterval(async () => {

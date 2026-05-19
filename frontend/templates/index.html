@@ -33,6 +33,10 @@
   <!-- Chart zone -->
   <section class="chart-zone">
     <div class="chart-controls">
+      <button class="market-btn active" id="marketBtn" title="NYSE Composite candlestick with NASDAQ Composite overlay">
+        ◈ Market
+      </button>
+
       <div class="ticker-search">
         <input
           type="text"
@@ -51,7 +55,11 @@
         <button class="period-btn" data-period="3mo">3M</button>
       </div>
 
-      <div class="chart-legend" id="chartLegend" aria-live="polite"></div>
+      <div class="chart-legend" id="chartLegend" aria-live="polite">
+        <span class="overlay-badge" id="overlayBadge" hidden>
+          <span class="overlay-dot"></span>NASDAQ
+        </span>
+      </div>
     </div>
 
     <div id="chartContainer" style="display:none;" aria-label="Candlestick chart"></div>

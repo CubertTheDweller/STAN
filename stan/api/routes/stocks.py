@@ -108,8 +108,15 @@ def _backfill_history(symbol: str, period: str) -> None:
 
     # yfinance 1.x returns MultiIndex columns even for a single ticker;
     # normalise to a flat frame so row["Open"] etc. are plain scalars.
+    # For index symbols (e.g. ^NYA) the MultiIndex key may differ from the
+    # requested symbol, so fall back to the first available ticker key.
     if isinstance(raw.columns, pd.MultiIndex):
-        raw = raw.xs(symbol, level=1, axis=1)
+        try:
+            raw = raw.xs(symbol, level=1, axis=1)
+        except KeyError:
+            keys = raw.columns.get_level_values(1).unique()
+            if len(keys) >= 1:
+                raw = raw.xs(keys[0], level=1, axis=1)
 
     def sf(v):
         try:
