@@ -207,6 +207,18 @@ async function loadChart(symbol, period) {
   }
 }
 
+// ─── News category definitions (must match backend _CATEGORIES) ─────────────────
+const MARKER_CATEGORIES = {
+  fed:          { label: 'Fed / Rates',   color: '#ef5350', key: 'F' },
+  earnings:     { label: 'Earnings',      color: '#26a69a', key: 'E' },
+  economic:     { label: 'Economic Data', color: '#00bcd4', key: 'D' },
+  tech:         { label: 'Technology',   color: '#2196f3', key: 'T' },
+  geopolitical: { label: 'Geopolitical', color: '#9c27b0', key: 'G' },
+  energy:       { label: 'Energy',       color: '#ff9800', key: 'O' },
+  merger:       { label: 'M&A',          color: '#e040fb', key: 'M' },
+  general:      { label: 'General News', color: '#9b9ea3', key: 'N' },
+};
+
 // ─── Market overview (NYSE candlestick + NASDAQ line overlay) ────────────────
 
 // Normalise a candle array to % change from the first close.
@@ -239,17 +251,19 @@ async function loadMarketChart(period) {
 
   try {
     const enc = encodeURIComponent;
-    const [nyaRes, ixicRes, gspcRes] = await Promise.all([
+    const [nyaRes, ixicRes, gspcRes, mkrRes] = await Promise.all([
       fetch(`/api/stocks/${enc('^NYA')}/candles?period=${period}`),
       fetch(`/api/stocks/${enc('^IXIC')}/candles?period=${period}`),
       fetch(`/api/stocks/${enc('^GSPC')}/candles?period=${period}`),
+      fetch(`/api/news/market-markers?period=${period}`),
     ]);
 
     if (!nyaRes.ok) throw new Error(`NYSE data unavailable (${nyaRes.status})`);
 
     const nyaData  = await nyaRes.json();
-    const ixicData = ixicRes.ok  ? await ixicRes.json()  : null;
-    const gspcData = gspcRes.ok  ? await gspcRes.json()  : null;
+    const ixicData = ixicRes.ok ? await ixicRes.json() : null;
+    const gspcData = gspcRes.ok ? await gspcRes.json() : null;
+    const mData    = mkrRes.ok  ? await mkrRes.json()  : { markers: [] };
 
     const candles = nyaData.candles.filter(
       (c) => c.open != null && c.high != null && c.low != null && c.close != null,
@@ -269,14 +283,46 @@ async function loadMarketChart(period) {
     S.overlayLineSeries.setData(ixicData ? normalizeToPercent(ixicData.candles) : []);
     S.sp500LineSeries.setData(gspcData   ? normalizeToPercent(gspcData.candles)  : []);
 
+    // ── News markers coloured by category ───────────────────────────
     S.markerMap.clear();
-    lcSetMarkers(S.candleSeries, []);
+    const seenCategories = new Set();
+    const chartMarkers = (mData.markers || []).map((m) => {
+      S.markerMap.set(m.time, m);
+      seenCategories.add(m.category || 'general');
+      return {
+        time:     m.time,
+        position: 'aboveBar',
+        color:    m.color,
+        shape:    'arrowDown',
+        text:     m.text,
+      };
+    });
+    lcSetMarkers(S.candleSeries, chartMarkers);
+    renderMarkerLegend(seenCategories);
+
     S.chart.timeScale().fitContent();
     updateStatus(true, `NYSE  ·  NASDAQ & S&P 500 % overlay  ·  ${period.toUpperCase()}`);
   } catch (err) {
     console.error('Market chart error:', err);
     updateStatus(false, err.message);
   }
+}
+
+// Render the per-category colour legend below the chart controls
+function renderMarkerLegend(seenCategories) {
+  const el = document.getElementById('markerLegend');
+  if (!seenCategories.size) { el.hidden = true; return; }
+  el.hidden = false;
+  el.innerHTML = Object.entries(MARKER_CATEGORIES)
+    .filter(([key]) => seenCategories.has(key))
+    .map(([, { label, color, key }]) =>
+      `<span class="marker-legend-item">
+        <span class="marker-legend-dot" style="background:${escHtml(color)}"></span>
+        <span class="marker-legend-key">${escHtml(key)}</span>
+        <span>${escHtml(label)}</span>
+      </span>`,
+    )
+    .join('');
 }
 
 // ─── Incremental refresh (append latest candle) ──────────────────────────────
@@ -361,6 +407,7 @@ function selectSymbol(symbol) {
   // Deactivate market button and hide overlay
   document.getElementById('marketBtn').classList.remove('active');
   document.getElementById('overlayBadge').hidden = true;
+  document.getElementById('markerLegend').hidden = true;
   if (S.chart) S.chart.applyOptions({ leftPriceScale: { visible: false } });
   if (S.overlayLineSeries) S.overlayLineSeries.setData([]);
   if (S.sp500LineSeries)   S.sp500LineSeries.setData([]);
