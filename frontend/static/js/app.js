@@ -440,7 +440,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Initial data load
   await Promise.all([loadStockList(), loadNewsFeed()]);
-  updateStatus(true, 'Connected — waiting for first data…');
+
+  // Auto-load chart for the first available symbol (default AAPL)
+  const defaultSymbol = (S.allStocks.length > 0 ? S.allStocks[0].symbol : null) || 'AAPL';
+  selectSymbol(defaultSymbol);
 
   // Auto-refresh every 60 s
   S.refreshTimer = setInterval(async () => {
