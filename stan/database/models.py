@@ -38,7 +38,9 @@ class PriceSnapshot(Base):
     __tablename__ = "price_snapshots"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    symbol = Column(String(20), ForeignKey("tickers.symbol", ondelete="CASCADE"), nullable=False, index=True)
+    symbol = Column(
+        String(20), ForeignKey("tickers.symbol", ondelete="CASCADE"), nullable=False, index=True
+    )
     timestamp = Column(DateTime, nullable=False, index=True)
     open = Column(Float, nullable=True)
     high = Column(Float, nullable=True)
@@ -47,9 +49,7 @@ class PriceSnapshot(Base):
     volume = Column(Float, nullable=True)
     change_pct = Column(Float, nullable=True)
 
-    __table_args__ = (
-        UniqueConstraint("symbol", "timestamp", name="uq_price_symbol_timestamp"),
-    )
+    __table_args__ = (UniqueConstraint("symbol", "timestamp", name="uq_price_symbol_timestamp"),)
 
 
 class NewsArticle(Base):
@@ -79,14 +79,14 @@ class NewsTicker(Base):
     __tablename__ = "news_tickers"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    article_id = Column(Integer, ForeignKey("news_articles.id", ondelete="CASCADE"), nullable=False, index=True)
+    article_id = Column(
+        Integer, ForeignKey("news_articles.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     symbol = Column(String(20), nullable=False, index=True)
 
     article = relationship("NewsArticle", back_populates="tickers")
 
-    __table_args__ = (
-        UniqueConstraint("article_id", "symbol", name="uq_news_article_symbol"),
-    )
+    __table_args__ = (UniqueConstraint("article_id", "symbol", name="uq_news_article_symbol"),)
 
 
 class NewsImpact(Base):
@@ -116,7 +116,9 @@ class NewsImpact(Base):
 
     __table_args__ = (
         UniqueConstraint(
-            "article_id", "symbol", "interval_minutes",
+            "article_id",
+            "symbol",
+            "interval_minutes",
             name="uq_news_impact",
         ),
     )

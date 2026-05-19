@@ -13,8 +13,8 @@ def test_fetch_sp500_symbols_returns_list():
     symbols = fetch_sp500_symbols()
     assert isinstance(symbols, list)
     assert len(symbols) == len(TRACKED_TICKERS)
-    assert "AAPL" in symbols   # top NASDAQ
-    assert "JPM" in symbols    # top NYSE
+    assert "AAPL" in symbols  # top NASDAQ
+    assert "JPM" in symbols  # top NYSE
 
 
 def test_fetch_sp500_symbols_returns_correct_count():

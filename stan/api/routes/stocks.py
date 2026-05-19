@@ -45,8 +45,7 @@ def list_stocks(
         db.query(PriceSnapshot, Ticker)
         .join(
             subq,
-            (PriceSnapshot.symbol == subq.c.symbol)
-            & (PriceSnapshot.timestamp == subq.c.max_ts),
+            (PriceSnapshot.symbol == subq.c.symbol) & (PriceSnapshot.timestamp == subq.c.max_ts),
         )
         .outerjoin(Ticker, PriceSnapshot.symbol == Ticker.symbol)
     )

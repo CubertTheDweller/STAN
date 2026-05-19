@@ -46,8 +46,12 @@ def setup_db():
         snap = PriceSnapshot(
             symbol="TEST",
             timestamp=datetime(2026, 5, 19, 12, 0, tzinfo=UTC),
-            open=100.0, high=105.0, low=99.0, close=103.0,
-            volume=1_000_000, change_pct=1.5,
+            open=100.0,
+            high=105.0,
+            low=99.0,
+            close=103.0,
+            volume=1_000_000,
+            change_pct=1.5,
         )
         db.add(snap)
 

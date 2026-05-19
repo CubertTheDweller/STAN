@@ -24,7 +24,9 @@ def fetch_sp500_symbols() -> list[str]:
     """Return the curated top-50-per-exchange ticker list from config."""
     logger.info(
         "Using %d curated tickers (%d NASDAQ + %d NYSE)",
-        len(TRACKED_TICKERS), len(TOP_NASDAQ), len(TOP_NYSE),
+        len(TRACKED_TICKERS),
+        len(TOP_NASDAQ),
+        len(TOP_NYSE),
     )
     return list(TRACKED_TICKERS)
 
@@ -83,7 +85,7 @@ def collect_stocks() -> None:
                 tickers=chunk,
                 period="2d",
                 interval="5m",
-                group_by="column",   # MultiIndex: (PriceType, Symbol)
+                group_by="column",  # MultiIndex: (PriceType, Symbol)
                 progress=False,
                 threads=True,
                 auto_adjust=True,

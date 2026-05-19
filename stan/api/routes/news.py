@@ -18,40 +18,142 @@ _PERIOD_DAYS = {"1d": 1, "5d": 5, "1mo": 30, "3mo": 90}
 # Each entry: (category_name, hex_color, marker_text, keyword_list)
 # Evaluated in order — first match wins.
 _CATEGORIES: list[tuple[str, str, str, list[str]]] = [
-    ("fed", "#ef5350", "F", [
-        "federal reserve", "the fed ", " fed ", "fomc", "interest rate",
-        "rate hike", "rate cut", "inflation", "cpi", "ppi", "powell",
-        "treasury yield", "monetary policy", "quantitative", "basis point",
-    ]),
-    ("earnings", "#26a69a", "E", [
-        "earnings", "revenue", "quarterly", " eps", "beat estimates",
-        "missed estimates", "guidance", "dividend", "buyback",
-        "q1 ", "q2 ", "q3 ", "q4 ",
-    ]),
-    ("economic", "#00bcd4", "D", [
-        "gdp", "unemployment", "jobs report", "nonfarm payroll",
-        "retail sales", "housing", "consumer confidence",
-        "manufacturing", "pmi ", "ism ", "recession", "labor market",
-    ]),
-    ("tech", "#2196f3", "T", [
-        "artificial intelligence", " ai ", "machine learning",
-        "semiconductor", " chip", "software", "cloud", "cybersecurity",
-        "data center", "blockchain", "crypto", "bitcoin",
-    ]),
-    ("geopolitical", "#9c27b0", "G", [
-        "war", "conflict", "sanction", "tariff", "trade war",
-        "geopolitical", "military", "ukraine", "russia", "iran",
-        "north korea", "taiwan", "nato", "missile", "diplomacy",
-    ]),
-    ("energy", "#ff9800", "O", [
-        "crude oil", "oil price", "opec", "natural gas", "energy prices",
-        "solar", "wind power", "electric vehicle", "petroleum",
-        "refinery", "pipeline", "lng",
-    ]),
-    ("merger", "#e040fb", "M", [
-        "merger", "acquisition", "takeover", "buyout",
-        "acquires", "acquired by", "merges with", "spin-off",
-    ]),
+    (
+        "fed",
+        "#ef5350",
+        "F",
+        [
+            "federal reserve",
+            "the fed ",
+            " fed ",
+            "fomc",
+            "interest rate",
+            "rate hike",
+            "rate cut",
+            "inflation",
+            "cpi",
+            "ppi",
+            "powell",
+            "treasury yield",
+            "monetary policy",
+            "quantitative",
+            "basis point",
+        ],
+    ),
+    (
+        "earnings",
+        "#26a69a",
+        "E",
+        [
+            "earnings",
+            "revenue",
+            "quarterly",
+            " eps",
+            "beat estimates",
+            "missed estimates",
+            "guidance",
+            "dividend",
+            "buyback",
+            "q1 ",
+            "q2 ",
+            "q3 ",
+            "q4 ",
+        ],
+    ),
+    (
+        "economic",
+        "#00bcd4",
+        "D",
+        [
+            "gdp",
+            "unemployment",
+            "jobs report",
+            "nonfarm payroll",
+            "retail sales",
+            "housing",
+            "consumer confidence",
+            "manufacturing",
+            "pmi ",
+            "ism ",
+            "recession",
+            "labor market",
+        ],
+    ),
+    (
+        "tech",
+        "#2196f3",
+        "T",
+        [
+            "artificial intelligence",
+            " ai ",
+            "machine learning",
+            "semiconductor",
+            " chip",
+            "software",
+            "cloud",
+            "cybersecurity",
+            "data center",
+            "blockchain",
+            "crypto",
+            "bitcoin",
+        ],
+    ),
+    (
+        "geopolitical",
+        "#9c27b0",
+        "G",
+        [
+            "war",
+            "conflict",
+            "sanction",
+            "tariff",
+            "trade war",
+            "geopolitical",
+            "military",
+            "ukraine",
+            "russia",
+            "iran",
+            "north korea",
+            "taiwan",
+            "nato",
+            "missile",
+            "diplomacy",
+        ],
+    ),
+    (
+        "energy",
+        "#ff9800",
+        "O",
+        [
+            "crude oil",
+            "oil price",
+            "opec",
+            "natural gas",
+            "energy prices",
+            "solar",
+            "wind power",
+            "electric vehicle",
+            "petroleum",
+            "refinery",
+            "pipeline",
+            "lng",
+        ],
+    ),
+    (
+        "merger",
+        "#e040fb",
+        "M",
+        [
+            "merger",
+            "acquisition",
+            "takeover",
+            "buyout",
+            "acquires",
+            "acquired by",
+            "merges with",
+            "spin-off",
+        ],
+    ),
 ]
 
 
@@ -223,22 +325,24 @@ def get_article_impact(article_id: int, db: Session = Depends(get_db)):
     by_symbol: dict[str, dict] = {}
     for imp in impacts:
         if imp.symbol not in by_symbol:
-            by_symbol[imp.symbol] = {"symbol": imp.symbol, "base_price": imp.base_price, "intervals": []}
+            by_symbol[imp.symbol] = {
+                "symbol": imp.symbol,
+                "base_price": imp.base_price,
+                "intervals": [],
+            }
 
         change_pct = None
         if imp.base_price and imp.interval_price and imp.base_price != 0:
-            change_pct = round(
-                ((imp.interval_price - imp.base_price) / imp.base_price) * 100, 4
-            )
+            change_pct = round(((imp.interval_price - imp.base_price) / imp.base_price) * 100, 4)
 
-        by_symbol[imp.symbol]["intervals"].append({
-            "minutes": imp.interval_minutes,
-            "interval_price": imp.interval_price,
-            "change_pct": change_pct,
-            "captured_at": (
-                imp.captured_at.isoformat() + "Z" if imp.captured_at else None
-            ),
-        })
+        by_symbol[imp.symbol]["intervals"].append(
+            {
+                "minutes": imp.interval_minutes,
+                "interval_price": imp.interval_price,
+                "change_pct": change_pct,
+                "captured_at": (imp.captured_at.isoformat() + "Z" if imp.captured_at else None),
+            }
+        )
 
     return {
         "article_id": article_id,
