@@ -194,7 +194,7 @@ a:hover { text-decoration: underline; }
   gap: 5px;
   font-family: var(--mono);
   font-size: 11px;
-  color: var(--accent);
+  color: var(--text-dim);
 }
 .overlay-dot {
   width: 8px; height: 2px;
@@ -203,6 +203,8 @@ a:hover { text-decoration: underline; }
   display: inline-block;
   flex-shrink: 0;
 }
+.overlay-dot.sp500 { background: #ff9800; }
+.overlay-badge .overlay-pct-label { font-size: 10px; opacity: 0.6; }
 
 /* Period buttons */
 .period-btns {

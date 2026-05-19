@@ -13,7 +13,8 @@ const S = {
   chart:             null,
   candleSeries:      null,
   volSeries:         null,
-  overlayLineSeries: null,      // NASDAQ line shown in market mode
+  overlayLineSeries: null,      // NASDAQ % change line (market mode)
+  sp500LineSeries:   null,      // S&P 500 % change line (market mode)
   markerMap:         new Map(), // Unix-ts (number) → marker object from API
   allStocks:         [],        // cached for autocomplete + table
   refreshTimer:      null,
@@ -98,12 +99,23 @@ function initChart() {
 
   // NASDAQ overlay line series — shown only in market mode (left price scale)
   S.overlayLineSeries = lcAddLine(S.chart, {
-    color:               '#2196f3',
-    lineWidth:           2,
-    priceScaleId:        'left',
-    title:               'NASDAQ',
-    lastValueVisible:    true,
-    priceLineVisible:    false,
+    color:                  '#2196f3',
+    lineWidth:              2,
+    priceScaleId:           'left',
+    title:                  'NASDAQ %',
+    lastValueVisible:       true,
+    priceLineVisible:       false,
+    crosshairMarkerVisible: true,
+  });
+
+  // S&P 500 overlay line series — also on the left % scale
+  S.sp500LineSeries = lcAddLine(S.chart, {
+    color:                  '#ff9800',
+    lineWidth:              2,
+    priceScaleId:           'left',
+    title:                  'S&P 500 %',
+    lastValueVisible:       true,
+    priceLineVisible:       false,
     crosshairMarkerVisible: true,
   });
 
@@ -196,6 +208,20 @@ async function loadChart(symbol, period) {
 }
 
 // ─── Market overview (NYSE candlestick + NASDAQ line overlay) ────────────────
+
+// Normalise a candle array to % change from the first close.
+// Returns [{time, value}] suitable for a line series.
+function normalizeToPercent(candles) {
+  const valid = candles.filter((c) => c.close != null);
+  if (!valid.length) return [];
+  const base = valid[0].close;
+  if (!base) return [];
+  return valid.map((c) => ({
+    time:  c.time,
+    value: +((c.close - base) / base * 100).toFixed(3),
+  }));
+}
+
 async function loadMarketChart(period) {
   S.mode   = 'market';
   S.symbol = null;
@@ -213,15 +239,17 @@ async function loadMarketChart(period) {
 
   try {
     const enc = encodeURIComponent;
-    const [nyaRes, ixicRes] = await Promise.all([
+    const [nyaRes, ixicRes, gspcRes] = await Promise.all([
       fetch(`/api/stocks/${enc('^NYA')}/candles?period=${period}`),
       fetch(`/api/stocks/${enc('^IXIC')}/candles?period=${period}`),
+      fetch(`/api/stocks/${enc('^GSPC')}/candles?period=${period}`),
     ]);
 
     if (!nyaRes.ok) throw new Error(`NYSE data unavailable (${nyaRes.status})`);
 
     const nyaData  = await nyaRes.json();
-    const ixicData = ixicRes.ok ? await ixicRes.json() : null;
+    const ixicData = ixicRes.ok  ? await ixicRes.json()  : null;
+    const gspcData = gspcRes.ok  ? await gspcRes.json()  : null;
 
     const candles = nyaData.candles.filter(
       (c) => c.open != null && c.high != null && c.low != null && c.close != null,
@@ -237,19 +265,14 @@ async function loadMarketChart(period) {
       }));
     S.volSeries.setData(vols);
 
-    if (ixicData) {
-      const line = ixicData.candles
-        .filter((c) => c.close != null)
-        .map((c) => ({ time: c.time, value: c.close }));
-      S.overlayLineSeries.setData(line);
-    } else {
-      S.overlayLineSeries.setData([]);
-    }
+    // Both overlays normalised to % change so they share one readable scale
+    S.overlayLineSeries.setData(ixicData ? normalizeToPercent(ixicData.candles) : []);
+    S.sp500LineSeries.setData(gspcData   ? normalizeToPercent(gspcData.candles)  : []);
 
     S.markerMap.clear();
     lcSetMarkers(S.candleSeries, []);
     S.chart.timeScale().fitContent();
-    updateStatus(true, `NYSE Composite  ·  NASDAQ overlay  ·  ${period.toUpperCase()}`);
+    updateStatus(true, `NYSE  ·  NASDAQ & S&P 500 % overlay  ·  ${period.toUpperCase()}`);
   } catch (err) {
     console.error('Market chart error:', err);
     updateStatus(false, err.message);
@@ -340,6 +363,7 @@ function selectSymbol(symbol) {
   document.getElementById('overlayBadge').hidden = true;
   if (S.chart) S.chart.applyOptions({ leftPriceScale: { visible: false } });
   if (S.overlayLineSeries) S.overlayLineSeries.setData([]);
+  if (S.sp500LineSeries)   S.sp500LineSeries.setData([]);
   loadChart(S.symbol, S.period);
 }
 
