@@ -166,6 +166,34 @@ a:hover { text-decoration: underline; }
 .autocomplete-list li:hover { background: var(--bg3); }
 .autocomplete-list li b { font-family: var(--mono); color: #fff; }
 
+/* Market news marker legend */
+.marker-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  padding: 6px 12px;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-dim);
+}
+.marker-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.marker-legend-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+.marker-legend-key {
+  font-weight: 700;
+  color: var(--text);
+}
+
 /* Market overview button */
 .market-btn {
   background: var(--bg3);

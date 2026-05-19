@@ -13,6 +13,56 @@ router = APIRouter(prefix="/api/news", tags=["news"])
 
 _PERIOD_DAYS = {"1d": 1, "5d": 5, "1mo": 30, "3mo": 90}
 
+# ── News category classifier ──────────────────────────────────────────────────
+
+# Each entry: (category_name, hex_color, marker_text, keyword_list)
+# Evaluated in order — first match wins.
+_CATEGORIES: list[tuple[str, str, str, list[str]]] = [
+    ("fed", "#ef5350", "F", [
+        "federal reserve", "the fed ", " fed ", "fomc", "interest rate",
+        "rate hike", "rate cut", "inflation", "cpi", "ppi", "powell",
+        "treasury yield", "monetary policy", "quantitative", "basis point",
+    ]),
+    ("earnings", "#26a69a", "E", [
+        "earnings", "revenue", "quarterly", " eps", "beat estimates",
+        "missed estimates", "guidance", "dividend", "buyback",
+        "q1 ", "q2 ", "q3 ", "q4 ",
+    ]),
+    ("economic", "#00bcd4", "D", [
+        "gdp", "unemployment", "jobs report", "nonfarm payroll",
+        "retail sales", "housing", "consumer confidence",
+        "manufacturing", "pmi ", "ism ", "recession", "labor market",
+    ]),
+    ("tech", "#2196f3", "T", [
+        "artificial intelligence", " ai ", "machine learning",
+        "semiconductor", " chip", "software", "cloud", "cybersecurity",
+        "data center", "blockchain", "crypto", "bitcoin",
+    ]),
+    ("geopolitical", "#9c27b0", "G", [
+        "war", "conflict", "sanction", "tariff", "trade war",
+        "geopolitical", "military", "ukraine", "russia", "iran",
+        "north korea", "taiwan", "nato", "missile", "diplomacy",
+    ]),
+    ("energy", "#ff9800", "O", [
+        "crude oil", "oil price", "opec", "natural gas", "energy prices",
+        "solar", "wind power", "electric vehicle", "petroleum",
+        "refinery", "pipeline", "lng",
+    ]),
+    ("merger", "#e040fb", "M", [
+        "merger", "acquisition", "takeover", "buyout",
+        "acquires", "acquired by", "merges with", "spin-off",
+    ]),
+]
+
+
+def classify_article(headline: str) -> tuple[str, str, str]:
+    """Return (category, color, marker_text) based on headline keywords."""
+    lower = headline.lower()
+    for name, color, text, keywords in _CATEGORIES:
+        if any(kw in lower for kw in keywords):
+            return name, color, text
+    return "general", "#9b9ea3", "N"
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -86,15 +136,17 @@ def get_news_markers(
             continue
         if ts.tzinfo is None:
             ts = ts.replace(tzinfo=UTC)
+        category, color, marker_text = classify_article(article.headline or "")
         markers.append(
             {
                 "time": int(ts.timestamp()),
                 "position": "aboveBar",
-                "color": "#f68410",
-                "shape": "circle",
-                "text": "N",
+                "color": color,
+                "shape": "arrowDown",
+                "text": marker_text,
                 "id": str(article.id),
-                # Extra fields used by the UI detail panel — not part of Lightweight Charts spec
+                "category": category,
+                # Extra fields used by the UI detail panel
                 "headline": article.headline,
                 "description": article.description,
                 "url": article.url,
@@ -103,6 +155,49 @@ def get_news_markers(
         )
 
     return {"symbol": symbol, "period": period, "markers": markers}
+
+
+@router.get("/market-markers")
+def get_market_markers(
+    period: str = Query(default="1d", pattern="^(1d|5d|1mo|3mo)$"),
+    db: Session = Depends(get_db),
+):
+    """Return all news events colour-coded by category for the market overview chart."""
+    days = _PERIOD_DAYS.get(period, 1)
+    cutoff = datetime.now(UTC) - timedelta(days=days)
+
+    articles = (
+        db.query(NewsArticle)
+        .filter(NewsArticle.published_at >= cutoff)
+        .order_by(NewsArticle.published_at)
+        .all()
+    )
+
+    markers = []
+    for article in articles:
+        ts = article.published_at
+        if ts is None:
+            continue
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=UTC)
+        category, color, marker_text = classify_article(article.headline or "")
+        markers.append(
+            {
+                "time": int(ts.timestamp()),
+                "position": "aboveBar",
+                "color": color,
+                "shape": "arrowDown",
+                "text": marker_text,
+                "id": str(article.id),
+                "category": category,
+                "headline": article.headline,
+                "description": article.description,
+                "url": article.url,
+                "source": article.source,
+            }
+        )
+
+    return {"period": period, "markers": markers}
 
 
 @router.get("/{article_id}/impact")
