@@ -14,10 +14,21 @@ pinned directly on the timeline.
 - **Continuous data collection** — polls yfinance (stocks) and RSS feeds (news) every 5 minutes via a background scheduler
 - **100 curated tickers** — top 50 by market cap on NASDAQ and NYSE; configurable in `stan/config.py`
 - **Interactive candlestick chart** — powered by TradingView Lightweight Charts; supports 1D / 5D / 1M / 3M views with volume histogram
+- **SMA overlays** — toggleable 20 / 50 / 200-period simple moving average lines on the chart
+- **Comparison mode** — overlay a second ticker on the same chart for side-by-side price comparison
 - **Colour-coded news markers** — 8 categories (Fed, Earnings, Economic, Tech, Geopolitical, Energy, Merger, General), each with a distinct colour and letter label; click any marker to read the headline and description
-- **News impact tracking** — price snapshots captured at 5 / 15 / 30 / 60 / 120 / 240 / 480 / 1440 minutes after each article to measure market reaction
-- **Live stocks table** — sortable, filterable table of all tracked tickers with current price, % change (green/red), and volume
+- **News impact tracking** — price snapshots captured at 5 / 15 / 30 / 60 / 120 / 240 / 480 / 1440 minutes after each article to measure market reaction; impact sparklines shown in the detail panel
+- **Sector heatmap** — colour-coded grid of sector average % change, powered by `/api/stocks/sectors`
+- **Trending tickers** — most news-mentioned tickers in the last N hours, sourced from `/api/news/trending`
+- **Live stocks table** — sortable, filterable table of all tracked tickers with current price, % change (green/red), volume, and sentiment badges
+- **Favorites** — star any ticker to pin it; persisted in `localStorage`
+- **Price alerts** — set a % change threshold per ticker; triggers a browser notification
+- **CSV export** — download the current candle series as a `.csv` file
 - **News feed** — scrollable list of the latest headlines with source badges, relative timestamps, and linked ticker tags
+- **Category filters** — filter news markers and the feed by category
+- **Light / dark theme** — toggle via the toolbar; preference persisted in `localStorage`
+- **WebSocket live push** — server broadcasts a refresh event to all browser tabs after each collection cycle; falls back to 60-second polling if WebSocket is unavailable
+- **System health endpoints** — `/api/status` and `/api/metrics` expose collection counters, impact fill rate, and DB size
 - **Automatic data archival** — data older than `DB_RETENTION_MONTHS` is exported to a zip of CSVs and pruned from the database on the 1st of each month
 - **Zero API keys required** — all data comes from Yahoo Finance and public RSS feeds
 - **Single-file database** — everything goes into `stan.db` (SQLite); no server setup needed
@@ -92,18 +103,22 @@ STAN/
 │   │   ├── stocks.py          # yfinance OHLCV collector (chunked, 50 per batch)
 │   │   ├── news.py            # feedparser RSS collector with ticker extraction
 │   │   ├── impact.py          # fills price-change snapshots after each article
-│   │   └── archive.py         # monthly data export to zip + DB pruning
+│   │   ├── archive.py         # monthly data export to zip + DB pruning
+│   │   └── state.py           # thread-safe collection counters and timestamps
 │   ├── scheduler.py           # APScheduler: 3 interval jobs + 1 monthly cron
 │   └── api/
 │       ├── main.py            # FastAPI app + lifespan (DB init, scheduler start)
+│       ├── ws.py              # WebSocket connection manager (broadcast_sync)
 │       └── routes/
-│           ├── stocks.py      # GET /api/stocks, GET /api/stocks/{symbol}/candles
-│           └── news.py        # news endpoints + category classifier
+│           ├── stocks.py      # /api/stocks, /api/stocks/sectors, /api/stocks/{symbol}/candles, /{symbol}/indicators
+│           ├── news.py        # news, markers, market-markers, trending, impact endpoints + classifier
+│           └── system.py      # /api/status, /api/metrics
 ├── frontend/
 │   ├── templates/index.html   # Jinja2 dashboard template
 │   └── static/
-│       ├── css/style.css      # Dark financial theme
-│       └── js/app.js          # Chart, autocomplete, table, feed, auto-refresh
+│       ├── css/style.css      # Dark/light financial theme
+│       └── js/app.js          # Chart, SMA, comparison, markers, table, feed, favorites,
+│                              #   alerts, CSV export, sector heatmap, trending, WebSocket
 ├── tests/
 │   ├── test_collectors.py
 │   ├── test_api.py
@@ -120,12 +135,18 @@ STAN/
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/api/stocks` | Latest price snapshot per ticker. Query params: `sector`, `limit`, `offset` |
+| `GET` | `/api/stocks/sectors` | Avg % change, ticker count, and top movers per sector |
 | `GET` | `/api/stocks/{symbol}/candles` | OHLCV candle series. Query params: `period` (`1d`·`5d`·`1mo`·`3mo`) |
+| `GET` | `/api/stocks/{symbol}/indicators` | SMA series. Query params: `period`, `sma` (repeatable: `sma=20&sma=50`) |
 | `GET` | `/api/news` | Recent news articles. Query params: `limit`, `offset` |
 | `GET` | `/api/news/markers` | Ticker-scoped news markers for the chart. Query params: `symbol`, `period` |
 | `GET` | `/api/news/market-markers` | All news events colour-coded by category. Query param: `period` |
+| `GET` | `/api/news/trending` | Most news-mentioned tickers. Query params: `hours`, `limit` |
 | `GET` | `/api/news/{id}/impact` | Price-change captures at 5–1440 min intervals after an article |
 | `GET` | `/api/news/{id}` | Single article detail |
+| `GET` | `/api/status` | Last collection timestamps, error counts, and DB row counts |
+| `GET` | `/api/metrics` | Detailed metrics: run counts, impact fill rate, DB size in bytes |
+| `WS`  | `/ws` | WebSocket — server pushes a refresh event after each collection cycle |
 
 Interactive API docs are available at **http://127.0.0.1:8000/docs** while the server is running.
 
