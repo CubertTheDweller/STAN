@@ -8,6 +8,7 @@ from email.utils import parsedate_to_datetime
 import feedparser
 from sqlalchemy.exc import IntegrityError
 
+from stan.collectors import state as cstate
 from stan.config import IMPACT_INTERVALS, NEWS_FEEDS
 from stan.database.db import SessionLocal
 from stan.database.models import NewsArticle, NewsImpact, NewsTicker, PriceSnapshot, Ticker
@@ -215,5 +216,12 @@ def collect_news() -> None:
                     db.rollback()
 
         logger.info("Inserted %d new news articles", inserted)
+        cstate.increment("news_runs")
+        cstate.update("last_news_ts", datetime.now(UTC).isoformat())
+        try:
+            from stan.api import ws as ws_manager  # noqa: PLC0415
+            ws_manager.broadcast_sync({"event": "update", "collector": "news"})
+        except Exception:
+            pass
     finally:
         db.close()

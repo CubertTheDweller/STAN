@@ -1,12 +1,14 @@
 """Stock price collector — fetches OHLCV data via yfinance every poll cycle."""
 
 import logging
+import time
 from datetime import UTC, datetime
 
 import pandas as pd
 import yfinance as yf
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
+from stan.collectors import state as cstate
 from stan.config import STOCK_CHUNK_SIZE, TOP_NASDAQ, TOP_NYSE, TRACKED_TICKERS
 from stan.database.db import SessionLocal
 from stan.database.models import PriceSnapshot, Ticker
@@ -53,6 +55,34 @@ def _chunks(lst: list, size: int):
         yield lst[i : i + size]
 
 
+def _download_with_retry(tickers: list[str], max_retries: int = 3) -> pd.DataFrame:
+    """Wrap yf.download with exponential back-off on transient failures."""
+    last_exc: Exception | None = None
+    for attempt in range(max_retries):
+        try:
+            return yf.download(
+                tickers=tickers,
+                period="2d",
+                interval="5m",
+                group_by="column",
+                progress=False,
+                threads=True,
+                auto_adjust=True,
+            )
+        except Exception as exc:
+            last_exc = exc
+            wait = 2 ** attempt
+            logger.warning(
+                "yfinance download attempt %d/%d failed (%s) — retrying in %ds",
+                attempt + 1,
+                max_retries,
+                exc,
+                wait,
+            )
+            time.sleep(wait)
+    raise last_exc  # type: ignore[misc]
+
+
 def _safe_float(val) -> float | None:
     try:
         if pd.isna(val):
@@ -81,17 +111,10 @@ def collect_stocks() -> None:
 
     for chunk in _chunks(_ticker_cache, STOCK_CHUNK_SIZE):
         try:
-            raw: pd.DataFrame = yf.download(
-                tickers=chunk,
-                period="2d",
-                interval="5m",
-                group_by="column",  # MultiIndex: (PriceType, Symbol)
-                progress=False,
-                threads=True,
-                auto_adjust=True,
-            )
+            raw: pd.DataFrame = _download_with_retry(chunk)
         except Exception as exc:
-            logger.error("yfinance batch download error: %s", exc)
+            logger.error("yfinance batch download error (all retries exhausted): %s", exc)
+            cstate.increment("stock_errors")
             continue
 
         if raw is None or raw.empty:
@@ -145,8 +168,17 @@ def collect_stocks() -> None:
         db.execute(stmt)
         db.commit()
         logger.info("Stored %d price snapshots at %s", len(snapshots), now.isoformat())
+        cstate.increment("stock_runs")
+        cstate.update("last_stock_ts", now.isoformat())
+        # Notify any connected WebSocket clients
+        try:
+            from stan.api import ws as ws_manager  # noqa: PLC0415
+            ws_manager.broadcast_sync({"event": "update", "collector": "stocks"})
+        except Exception:
+            pass
     except Exception as exc:
         logger.error("DB write error (stocks): %s", exc)
+        cstate.increment("stock_errors")
         db.rollback()
     finally:
         db.close()

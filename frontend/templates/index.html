@@ -23,8 +23,7 @@
   <div class="status-bar">
     <span class="status-dot" id="statusDot"></span>
     <span id="statusText">Connecting…</span>
-    <span class="last-update" id="lastUpdate"></span>
-  </div>
+    <span class="last-update" id="lastUpdate"></span>    <button class="theme-toggle" id="themeToggle" title="Toggle light / dark mode" aria-label="Toggle theme">☀</button>  </div>
 </header>
 
 <!-- ── Main layout ─────────────────────────────────────────────────────── -->
@@ -55,13 +54,43 @@
         <button class="period-btn" data-period="3mo">3M</button>
       </div>
 
+      <!-- SMA toggles — visible only in symbol mode -->
+      <div class="sma-btns" id="smaBtns" hidden aria-label="Moving average toggles">
+        <button class="sma-btn" data-sma="20">SMA 20</button>
+        <button class="sma-btn" data-sma="50">SMA 50</button>
+        <button class="sma-btn" data-sma="200">SMA 200</button>
+      </div>
+
+      <!-- Compare, alert, export — visible only in symbol mode -->
+      <button class="chart-tool-btn" id="compareBtn" hidden title="Compare with another symbol">⊕ Compare</button>
+      <button class="chart-tool-btn" id="alertBtn" hidden title="Set price alert">🔔</button>
+      <button class="chart-tool-btn" id="exportCandlesBtn" hidden title="Export chart data as CSV">↓ CSV</button>
+
       <div class="chart-legend" id="chartLegend" aria-live="polite">
         <span class="overlay-badge" id="overlayBadge" hidden>
           <span class="overlay-dot"></span>NASDAQ
           <span class="overlay-dot sp500"></span>S&amp;P 500
-          <span class="overlay-pct-label">(% change)</span>
+          <span class="overlay-pct-label">(% change)</span>
         </span>
       </div>
+    </div>
+
+    <!-- Compare symbol controls -->
+    <div class="compare-controls" id="compareControls" hidden>
+      <div class="compare-pills" id="comparePills"></div>
+      <div class="ticker-search compare-search">
+        <input type="text" id="compareInput" placeholder="Add symbol…" autocomplete="off" spellcheck="false" />
+      </div>
+      <button class="chart-tool-btn" id="clearCompareBtn">✕ Clear</button>
+    </div>
+
+    <!-- Alert inline form -->
+    <div class="alert-form" id="alertForm" hidden>
+      <span class="alert-label">Alert when ±</span>
+      <input type="number" id="alertThreshold" placeholder="%" min="0.1" max="50" step="0.1" aria-label="Alert threshold %" />
+      <span class="alert-label">% change</span>
+      <button class="chart-tool-btn" id="setAlertBtn">Set</button>
+      <button class="chart-tool-btn danger" id="removeAlertBtn" hidden>Remove</button>
     </div>
 
     <div class="marker-legend" id="markerLegend" hidden aria-label="News marker legend"></div>
@@ -94,13 +123,21 @@
     <div class="news-panel-body" id="newsPanelBody"></div>
   </aside>
 
-  <!-- Bottom zone: news feed + stocks table -->
+  <!-- Bottom zone: sector heatmap + news feed + stocks table + trending -->
   <div class="bottom-zone">
+
+    <!-- Sector heatmap (full-width top row) -->
+    <div class="sector-heatmap" id="sectorHeatmap">
+      <div class="sector-heatmap-header">
+        <span class="sector-heatmap-title">Sectors</span>
+      </div>
+      <div class="sector-tiles" id="sectorTiles"></div>
+    </div>
 
     <section class="news-feed" aria-label="News feed">
       <div class="section-header">
         <h2>News Feed</h2>
-        <input type="search" id="newsSearch" placeholder="Filter…" aria-label="Filter news" />
+        <input type="search" id="newsSearch" placeholder="Search…" aria-label="Search news" />
       </div>
       <ul class="news-list" id="newsList">
         <li class="placeholder-row">Loading news…</li>
@@ -110,12 +147,16 @@
     <section class="stocks-section" aria-label="Stocks">
       <div class="section-header">
         <h2>Stocks</h2>
-        <input type="search" id="stockSearch" placeholder="Filter…" aria-label="Filter stocks" />
+        <div style="display:flex;gap:6px;align-items:center">
+          <input type="search" id="stockSearch" placeholder="Filter…" aria-label="Filter stocks" />
+          <button class="chart-tool-btn" id="exportStocksBtn" title="Export stocks table as CSV">↓ CSV</button>
+        </div>
       </div>
       <div class="table-wrapper">
         <table class="stocks-table">
           <thead>
             <tr>
+              <th class="fav-col" title="Favorites">★</th>
               <th data-col="symbol">Symbol</th>
               <th data-col="name">Name</th>
               <th data-col="close" class="num">Price</th>
@@ -124,10 +165,21 @@
             </tr>
           </thead>
           <tbody id="stocksBody">
-            <tr><td colspan="5" class="placeholder-row">Loading stocks…</td></tr>
+            <tr><td colspan="6" class="placeholder-row">Loading stocks…</td></tr>
           </tbody>
         </table>
       </div>
+    </section>
+
+    <!-- Trending tickers panel -->
+    <section class="trending-panel" aria-label="Trending tickers">
+      <div class="section-header">
+        <h2>Trending</h2>
+        <span class="trending-period" id="trendingPeriodLabel">24h</span>
+      </div>
+      <ul class="trending-list" id="trendingList">
+        <li class="placeholder-row">Loading…</li>
+      </ul>
     </section>
 
   </div><!-- /bottom-zone -->

@@ -79,6 +79,62 @@ def list_stocks(
     }
 
 
+# ── Sector performance ───────────────────────────────────────────────────────
+# MUST be declared before /{symbol}/candles (static path before dynamic)
+
+
+@router.get("/sectors")
+def get_sectors(db: Session = Depends(get_db)):
+    """Return avg % change, ticker count, and top movers per sector."""
+    # Reuse the same subquery pattern as list_stocks
+    subq = (
+        db.query(
+            PriceSnapshot.symbol,
+            func.max(PriceSnapshot.timestamp).label("max_ts"),
+        )
+        .group_by(PriceSnapshot.symbol)
+        .subquery()
+    )
+
+    rows = (
+        db.query(PriceSnapshot, Ticker)
+        .join(
+            subq,
+            (PriceSnapshot.symbol == subq.c.symbol)
+            & (PriceSnapshot.timestamp == subq.c.max_ts),
+        )
+        .outerjoin(Ticker, PriceSnapshot.symbol == Ticker.symbol)
+        .filter(Ticker.sector.isnot(None))
+        .all()
+    )
+
+    sectors: dict[str, dict] = {}
+    for snap, ticker in rows:
+        sec = ticker.sector if ticker else "Unknown"
+        if sec not in sectors:
+            sectors[sec] = {"sector": sec, "items": []}
+        sectors[sec]["items"].append(
+            {"symbol": snap.symbol, "change_pct": snap.change_pct}
+        )
+
+    result = []
+    for sec, data in sorted(sectors.items()):
+        items = data["items"]
+        valid = [i for i in items if i["change_pct"] is not None]
+        avg = round(sum(i["change_pct"] for i in valid) / len(valid), 4) if valid else None
+        top = sorted(valid, key=lambda i: abs(i["change_pct"]), reverse=True)[:3]
+        result.append(
+            {
+                "sector": sec,
+                "avg_change_pct": avg,
+                "ticker_count": len(items),
+                "top_movers": top,
+            }
+        )
+
+    return {"sectors": result}
+
+
 # ── Candle history ────────────────────────────────────────────────────────────
 
 
@@ -193,10 +249,20 @@ def get_candles(
         raise HTTPException(status_code=404, detail=f"No candle data found for {symbol!r}")
 
     candles = []
-    for row in rows:
+    for i, row in enumerate(rows):
         ts = row.timestamp
         if ts.tzinfo is None:
             ts = ts.replace(tzinfo=UTC)
+
+        # Volume spike: flag bars where volume > 2× 20-period rolling average
+        vol_spike = False
+        if row.volume is not None and i >= 1:
+            window = rows[max(0, i - 19) : i]  # up to 20 prior bars
+            avg_vols = [r.volume for r in window if r.volume is not None]
+            if avg_vols:
+                rolling_avg = sum(avg_vols) / len(avg_vols)
+                vol_spike = rolling_avg > 0 and row.volume > 2 * rolling_avg
+
         candles.append(
             {
                 "time": int(ts.timestamp()),
@@ -205,7 +271,63 @@ def get_candles(
                 "low": row.low,
                 "close": row.close,
                 "volume": row.volume,
+                "volume_spike": vol_spike,
             }
         )
 
     return {"symbol": symbol, "period": period, "candles": candles}
+
+
+# ── Technical indicators ──────────────────────────────────────────────────────
+
+
+@router.get("/{symbol}/indicators")
+def get_indicators(
+    symbol: str,
+    period: str = Query(default="1d", pattern="^(1d|5d|1mo|3mo)$"),
+    sma: list[int] = Query(default=[]),
+    db: Session = Depends(get_db),
+):
+    """Return simple moving averages for the requested period.
+
+    Example: /api/stocks/AAPL/indicators?period=3mo&sma=20&sma=50&sma=200
+    """
+    symbol = symbol.upper()
+    days = _PERIOD_DAYS.get(period, 1)
+    cutoff = datetime.now(UTC) - timedelta(days=days)
+
+    rows = (
+        db.query(PriceSnapshot)
+        .filter(
+            PriceSnapshot.symbol == symbol,
+            PriceSnapshot.timestamp >= cutoff,
+            PriceSnapshot.close.isnot(None),
+        )
+        .order_by(PriceSnapshot.timestamp)
+        .all()
+    )
+
+    if not rows:
+        raise HTTPException(status_code=404, detail=f"No data for {symbol!r}")
+
+    closes = [row.close for row in rows]
+    timestamps = []
+    for row in rows:
+        ts = row.timestamp
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=UTC)
+        timestamps.append(int(ts.timestamp()))
+
+    periods_to_compute = sma if sma else [20, 50, 200]
+
+    indicators: dict[str, list] = {}
+    for n in periods_to_compute:
+        key = f"sma{n}"
+        series = []
+        for i in range(len(closes)):
+            if i + 1 >= n:
+                avg = sum(closes[i - n + 1 : i + 1]) / n
+                series.append({"time": timestamps[i], "value": round(avg, 4)})
+        indicators[key] = series
+
+    return {"symbol": symbol, "period": period, "indicators": indicators}

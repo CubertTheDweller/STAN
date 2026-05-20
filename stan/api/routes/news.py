@@ -3,11 +3,11 @@
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import desc
+from sqlalchemy import desc, func, text
 from sqlalchemy.orm import Session
 
 from stan.database.db import get_db
-from stan.database.models import NewsArticle, NewsImpact, NewsTicker
+from stan.database.models import NewsArticle, NewsImpact, NewsTicker, PriceSnapshot, Ticker
 
 router = APIRouter(prefix="/api/news", tags=["news"])
 
@@ -160,10 +160,35 @@ _CATEGORIES: list[tuple[str, str, str, list[str]]] = [
 def classify_article(headline: str) -> tuple[str, str, str]:
     """Return (category, color, marker_text) based on headline keywords."""
     lower = headline.lower()
-    for name, color, text, keywords in _CATEGORIES:
+    for name, color, marker_txt, keywords in _CATEGORIES:
         if any(kw in lower for kw in keywords):
-            return name, color, text
+            return name, color, marker_txt
     return "general", "#9b9ea3", "N"
+
+
+# Positive / negative keyword lists for sentiment scoring
+_POS_WORDS = [
+    "gains", "rises", "surges", "beats", "rallies", "climbs", "upgrades",
+    "record", "growth", "profit", "exceeds", "stronger", "recovery",
+    "jumps", "soars", "breakthrough", "expansion", "outperforms",
+]
+_NEG_WORDS = [
+    "drops", "falls", "misses", "cuts", "declines", "slumps", "downgrades",
+    "loss", "layoffs", "recall", "ban", "fears", "concern", "crisis",
+    "plunges", "collapses", "warning", "weak", "disappoints", "tumbles",
+]
+
+
+def _score_sentiment(headline: str) -> str:
+    """Return 'positive', 'negative', or 'neutral' based on keyword scoring."""
+    lower = headline.lower()
+    pos = sum(1 for kw in _POS_WORDS if kw in lower)
+    neg = sum(1 for kw in _NEG_WORDS if kw in lower)
+    if pos > neg:
+        return "positive"
+    if neg > pos:
+        return "negative"
+    return "neutral"
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -171,6 +196,7 @@ def classify_article(headline: str) -> tuple[str, str, str]:
 
 def _article_dict(article: NewsArticle, db: Session) -> dict:
     tickers = [nt.symbol for nt in db.query(NewsTicker).filter_by(article_id=article.id).all()]
+    category, _, _ = classify_article(article.headline or "")
     return {
         "id": article.id,
         "source": article.source,
@@ -180,6 +206,8 @@ def _article_dict(article: NewsArticle, db: Session) -> dict:
         "published_at": article.published_at.isoformat() + "Z" if article.published_at else None,
         "fetched_at": article.fetched_at.isoformat() + "Z" if article.fetched_at else None,
         "tickers": tickers,
+        "category": category,
+        "sentiment": _score_sentiment(article.headline or ""),
     }
 
 
@@ -188,19 +216,57 @@ def _article_dict(article: NewsArticle, db: Session) -> dict:
 
 @router.get("")
 def list_news(
+    q: str | None = Query(default=None, description="Full-text search query"),
     limit: int = Query(default=50, le=200),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    """Return recent news articles, newest first."""
-    total = db.query(NewsArticle).count()
-    articles = (
-        db.query(NewsArticle)
-        .order_by(desc(NewsArticle.published_at))
-        .offset(offset)
-        .limit(limit)
-        .all()
-    )
+    """Return recent news articles, newest first. Supports full-text search via ?q=."""
+    if q and q.strip():
+        # Sanitise the query: strip punctuation that confuses FTS5 syntax
+        safe_q = " OR ".join(
+            f'"{w}"*'
+            for w in q.replace('"', "").replace("'", "").split()
+            if w
+        )
+        try:
+            total = db.execute(
+                text("SELECT COUNT(*) FROM news_fts WHERE news_fts MATCH :q"),
+                {"q": safe_q},
+            ).scalar() or 0
+            id_rows = db.execute(
+                text(
+                    "SELECT rowid FROM news_fts WHERE news_fts MATCH :q "
+                    "ORDER BY rank LIMIT :lim OFFSET :off"
+                ),
+                {"q": safe_q, "lim": limit, "off": offset},
+            ).fetchall()
+            ids = [r[0] for r in id_rows]
+            articles = (
+                db.query(NewsArticle)
+                .filter(NewsArticle.id.in_(ids))
+                .order_by(desc(NewsArticle.published_at))
+                .all()
+            )
+        except Exception:
+            # FTS table unavailable or bad query — fall back to normal
+            total = db.query(NewsArticle).count()
+            articles = (
+                db.query(NewsArticle)
+                .order_by(desc(NewsArticle.published_at))
+                .offset(offset)
+                .limit(limit)
+                .all()
+            )
+    else:
+        total = db.query(NewsArticle).count()
+        articles = (
+            db.query(NewsArticle)
+            .order_by(desc(NewsArticle.published_at))
+            .offset(offset)
+            .limit(limit)
+            .all()
+        )
     return {
         "total": total,
         "offset": offset,
@@ -300,6 +366,67 @@ def get_market_markers(
         )
 
     return {"period": period, "markers": markers}
+
+
+# ── Trending tickers ─────────────────────────────────────────────────────────
+# MUST be declared before /{article_id} (static path before dynamic)
+
+
+@router.get("/trending")
+def get_trending(
+    hours: int = Query(default=24, ge=1, le=168),
+    limit: int = Query(default=10, ge=1, le=50),
+    db: Session = Depends(get_db),
+):
+    """Return the most news-mentioned tickers in the last N hours."""
+    cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=hours)
+
+    # Subquery: latest snapshot per symbol for change_pct
+    snap_subq = (
+        db.query(
+            PriceSnapshot.symbol,
+            func.max(PriceSnapshot.timestamp).label("max_ts"),
+        )
+        .group_by(PriceSnapshot.symbol)
+        .subquery()
+    )
+
+    mention_rows = (
+        db.query(
+            NewsTicker.symbol,
+            func.count(NewsTicker.symbol).label("mentions"),
+        )
+        .join(NewsArticle, NewsTicker.article_id == NewsArticle.id)
+        .filter(NewsArticle.fetched_at >= cutoff)
+        .group_by(NewsTicker.symbol)
+        .order_by(desc("mentions"))
+        .limit(limit)
+        .all()
+    )
+
+    result = []
+    for sym, count in mention_rows:
+        ticker = db.query(Ticker).filter(Ticker.symbol == sym).first()
+        snap = (
+            db.query(PriceSnapshot)
+            .join(
+                snap_subq,
+                (PriceSnapshot.symbol == snap_subq.c.symbol)
+                & (PriceSnapshot.timestamp == snap_subq.c.max_ts),
+            )
+            .filter(PriceSnapshot.symbol == sym)
+            .first()
+        )
+        result.append(
+            {
+                "symbol": sym,
+                "mentions": count,
+                "name": ticker.name if ticker else None,
+                "change_pct": snap.change_pct if snap else None,
+            }
+        )
+
+    return {"hours": hours, "items": result}
 
 
 @router.get("/{article_id}/impact")
